@@ -199,9 +199,11 @@ int hashTypeExists(robj *o, sds field) {
 #define HASH_SET_TAKE_FIELD (1<<0)
 #define HASH_SET_TAKE_VALUE (1<<1)
 #define HASH_SET_COPY 0
+// hash结构赋值
 int hashTypeSet(robj *o, sds field, sds value, int flags) {
     int update = 0;
 
+// 判断当前redisobject对象编码类型. 是否需要使用ziplist
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl, *fptr, *vptr;
 
@@ -232,7 +234,8 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
                     ZIPLIST_TAIL);
         }
         o->ptr = zl;
-
+        /* 这个地方就是传说中的 判断是否需要使用压缩列表的 如果长度超过了设置的值,那么将该数据结构进行改变. 改变成普通的hashtable 这样就内存优化失效了 */
+        // 当个数超多的时候, 也应该失效, 因为ziplist本质上是采用CPU换空间的做法. 
         /* Check if the ziplist needs to be converted to a hash table */
         if (hashTypeLength(o) > server.hash_max_ziplist_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT);
@@ -307,12 +310,16 @@ int hashTypeDelete(robj *o, sds field) {
     return deleted;
 }
 
-/* Return the number of elements in a hash. */
+/* 
+检查hash数据的长度. 元素检查
+Return the number of elements in a hash. 
+*/
 unsigned long hashTypeLength(const robj *o) {
     unsigned long length = ULONG_MAX;
-
+    // 如果当前编码类型采用的是ziplist 压缩 那么进入该方法
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         length = ziplistLen(o->ptr) / 2;
+        // 如果采用的是普通的hashtable 方式那么进入该方法
     } else if (o->encoding == OBJ_ENCODING_HT) {
         length = dictSize((const dict*)o->ptr);
     } else {
@@ -461,7 +468,7 @@ robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
     }
     return o;
 }
-
+// 循环去除ziplist一个一个数据. 然后使用 dictadd放入
 void hashTypeConvertZiplist(robj *o, int enc) {
     serverAssert(o->encoding == OBJ_ENCODING_ZIPLIST);
 
@@ -497,6 +504,7 @@ void hashTypeConvertZiplist(robj *o, int enc) {
     }
 }
 
+// 判断转变过程,从中可以看出. redis 的后续活动可能会有个动态转变的过程 当长度超出了就转变成普通hashtable 个数少了,且一定时间内不再改变那么转变成ziplist
 void hashTypeConvert(robj *o, int enc) {
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         hashTypeConvertZiplist(o, enc);
