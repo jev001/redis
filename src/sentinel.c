@@ -461,6 +461,7 @@ struct redisCommand sentinelcmds[] = {
  * specific defaults. */
 void initSentinelConfig(void) {
     server.port = REDIS_SENTINEL_PORT;
+    // 哨兵模式下, 需要有其他程序去监听此客户端. 所以需要将网络保护模式关闭
     server.protected_mode = 0; /* Sentinel must be exposed. */
 }
 
@@ -470,11 +471,13 @@ void initSentinel(void) {
 
     /* Remove usual Redis commands from the command table, then just add
      * the SENTINEL command. */
+    // 去掉服务器接收的命令. 这个就引发出问题. 哨兵服务器可以正常接收redis客户端的信息吗？
     dictEmpty(server.commands,NULL);
     for (j = 0; j < sizeof(sentinelcmds)/sizeof(sentinelcmds[0]); j++) {
         int retval;
         struct redisCommand *cmd = sentinelcmds+j;
 
+        // 使用sds创建一个命令字符串
         retval = dictAdd(server.commands, sdsnew(cmd->name), cmd);
         serverAssert(retval == DICT_OK);
 
