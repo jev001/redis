@@ -136,6 +136,7 @@ unsigned long long estimateObjectIdleTime(robj *o) {
  * evicted in the whole database. */
 
 /* Create a new eviction pool. */
+// LRU缓存池,可以参照这个写一写缓存池
 void evictionPoolAlloc(void) {
     struct evictionPoolEntry *ep;
     int j;
@@ -159,6 +160,7 @@ void evictionPoolAlloc(void) {
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
 
+// LRU 一下. 这个是LRU的核心算法. 用它来做是否最受欢迎的 重点
 void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
     int j, k, count;
     dictEntry *samples[server.maxmemory_samples];
