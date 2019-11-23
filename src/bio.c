@@ -184,15 +184,19 @@ void *bioProcessBackgroundJobs(void *arg) {
         pthread_mutex_unlock(&bio_mutex[type]);
 
         /* Process the job accordingly to its type. */
+        // 后台线程处理器
         if (type == BIO_CLOSE_FILE) {
+            // 关闭操作
             close((long)job->arg1);
         } else if (type == BIO_AOF_FSYNC) {
+            // redis AOF 同步操作. 这个是什么呢?
             redis_fsync((long)job->arg1);
         } else if (type == BIO_LAZY_FREE) {
             /* What we free changes depending on what arguments are set:
              * arg1 -> free the object at pointer.
              * arg2 & arg3 -> free two dictionaries (a Redis DB).
              * only arg3 -> free the skiplist. */
+            // 缓存清理/ 惰性清理操作
             if (job->arg1)
                 lazyfreeFreeObjectFromBioThread(job->arg1);
             else if (job->arg2 && job->arg3)
