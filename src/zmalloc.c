@@ -56,6 +56,10 @@ void zlibc_free(void *ptr) {
 #endif
 #endif
 
+// 这货的操作是做一个统计. 每次分配使用的时候的统计.
+// 具体实现引擎使用tcmallooc 或者 jemalloc来实现
+// 至于为什么使用这两个分配策略呢? 需要具体去了解了
+
 /* Explicitly override malloc/free etc when using tcmalloc. */
 #if defined(USE_TCMALLOC)
 #define malloc(size) tc_malloc(size)
@@ -86,6 +90,7 @@ void zlibc_free(void *ptr) {
 static size_t used_memory = 0;
 pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+// 当发生OOM的时候 的处理. 停止当前效果
 static void zmalloc_default_oom(size_t size) {
     fprintf(stderr, "zmalloc: Out of memory trying to allocate %zu bytes\n",
         size);
