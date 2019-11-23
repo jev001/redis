@@ -44,6 +44,11 @@
 #include "zmalloc.h"
 #include "config.h"
 
+
+/*******************************************************
+ * 重点 redis 的事件驱动处理的实现. 这个地方可以怎么去实现事件的
+ * /
+
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
 #ifdef HAVE_EVPORT
@@ -133,6 +138,7 @@ void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
 
+// 创建一个文件描述事件
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
@@ -355,6 +361,9 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * if flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.
  *
  * The function returns the number of events processed. */
+
+
+// 处理事件驱动的地方
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
@@ -495,6 +504,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
 
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
+    // 开始死循环了 这个时候所有的驱动都是在这里
     while (!eventLoop->stop) {
         if (eventLoop->beforesleep != NULL)
             eventLoop->beforesleep(eventLoop);
