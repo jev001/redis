@@ -40,6 +40,7 @@ const char *SDS_NOINIT;
 #include <stdarg.h>
 #include <stdint.h>
 
+// simple dynamic string 简单动态字符串类型
 typedef char *sds;
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.

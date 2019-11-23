@@ -2196,6 +2196,7 @@ void createSharedObjects(void) {
     shared.maxstring = sdsnew("maxstring");
 }
 
+// 初始化加载配置 redis.conf 数据.
 void initServerConfig(void) {
     int j;
 
@@ -2593,6 +2594,7 @@ void checkTcpBacklogSettings(void) {
  * impossible to bind, or no bind addresses were specified in the server
  * configuration but the function is not able to bind * for at least
  * one of the IPv4 or IPv6 protocols. */
+// anet是什么东西啊
 int listenToPort(int port, int *fds, int *count) {
     int j;
 
@@ -2607,6 +2609,7 @@ int listenToPort(int port, int *fds, int *count) {
             fds[*count] = anetTcp6Server(server.neterr,port,NULL,
                 server.tcp_backlog);
             if (fds[*count] != ANET_ERR) {
+                // 初始化一个非阻塞网络服务
                 anetNonBlock(NULL,fds[*count]);
                 (*count)++;
             } else if (errno == EAFNOSUPPORT) {
@@ -2693,11 +2696,14 @@ void resetServerStats(void) {
     server.aof_delayed_fsync = 0;
 }
 
+// 初始化redis 服务器 重点************
 void initServer(void) {
     int j;
 
+    // 标记信号
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
+    // 注册信号
     setupSignalHandlers();
 
     if (server.syslog_enabled) {
@@ -2706,9 +2712,11 @@ void initServer(void) {
     }
 
     server.hz = server.config_hz;
+    // act获取pid
     server.pid = getpid();
     server.current_client = NULL;
     server.clients = listCreate();
+    // rax是个啥
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();
     server.slaves = listCreate();
@@ -2731,14 +2739,17 @@ void initServer(void) {
             strerror(errno));
         exit(1);
     }
+    // 获取redisDB 的数量 这个是设置的 这个DB 被称之为分区
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
+    // 监听ip地址. r
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
         exit(1);
 
     /* Open the listening Unix domain socket. */
+    // 开始进行fd复制了
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
         server.sofd = anetUnixServer(server.neterr,server.unixsocket,
@@ -2757,6 +2768,7 @@ void initServer(void) {
     }
 
     /* Create the Redis databases, and initialize other internal state. */
+    // 开始初始化redis分区了. s
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
@@ -2767,6 +2779,7 @@ void initServer(void) {
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
     }
+    // 初始化lru 池 这个东西有用
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     server.pubsub_patterns = listCreate();
@@ -2814,6 +2827,7 @@ void initServer(void) {
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
     for (j = 0; j < server.ipfd_count; j++) {
+        // 创建tcp 读取处理驱动 关键点在acceptTcpHandler
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
             {
@@ -2821,10 +2835,12 @@ void initServer(void) {
                     "Unrecoverable error creating server.ipfd file event.");
             }
     }
+    // 创建 unix驱动? 不太明白为什么要这么做  重点
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
 
 
+    // 注册 一个唤醒程序用的事件. 黑人问号 描述
     /* Register a readable event for the pipe used to awake the event loop
      * when a blocked client in a module needs attention. */
     if (aeCreateFileEvent(server.el, server.module_blocked_pipe[0], AE_READABLE,
@@ -2849,17 +2865,20 @@ void initServer(void) {
      * no explicit limit in the user provided configuration we set a limit
      * at 3 GB using maxmemory with 'noeviction' policy'. This avoids
      * useless crashes of the Redis instance for out of memory. */
+    // 内存优化中提到的 使用32位的redis . 的策略. 可以对arch_bits 进行追踪了解为什么使用32位可以减少
     if (server.arch_bits == 32 && server.maxmemory == 0) {
         serverLog(LL_WARNING,"Warning: 32 bit instance detected but no memory limit set. Setting 3 GB maxmemory limit with 'noeviction' policy now.");
         server.maxmemory = 3072LL*(1024*1024); /* 3 GB */
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
 
+    // 
     if (server.cluster_enabled) clusterInit();
     replicationScriptCacheInit();
     scriptingInit(1);
     slowlogInit();
     latencyMonitorInit();
+    // BIO 线程操作初始化
     bioInit();
     server.initial_memory_usage = zmalloc_used_memory();
 }
@@ -4398,6 +4417,7 @@ void createPidFile(void) {
     }
 }
 
+// 挂载守护模式. 守护模式的作用是 fork出一个程序出来.然后监听创建的这个程序的fd. 如果挂了可以立马通知
 void daemonize(void) {
     int fd;
 
@@ -4582,6 +4602,8 @@ void loadDataFromDisk(void) {
     }
 }
 
+// redisOOM处理方法.  此方法可以做进步一步扩展
+// 目前处理方式只是 将log打印出来.
 void redisOutOfMemoryHandler(size_t allocation_size) {
     serverLog(LL_WARNING,"Out Of Memory allocating %zu bytes!",
         allocation_size);
@@ -4700,10 +4722,13 @@ int redisIsSupervised(int mode) {
 }
 
 
+// 服务端开始启动
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
 
+// 编译期间
+// 检查是否是测试模式.  测试模式. 测试模式会对一些功能进行测试使用
 #ifdef REDIS_TEST
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
         if (!strcasecmp(argv[2], "ziplist")) {
@@ -4732,10 +4757,12 @@ int main(int argc, char **argv) {
     }
 #endif
 
+// 替换库
     /* We need to initialize our libraries, and the server configuration. */
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
     spt_init(argc, argv);
 #endif
+// 设置时区
     setlocale(LC_COLLATE,"");
     tzset(); /* Populates 'timezone' global. */
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
@@ -4747,8 +4774,10 @@ int main(int argc, char **argv) {
     dictSetHashFunctionSeed((uint8_t*)hashseed);
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();
+    // 为什么要初始化该信息
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
+    // 初始化模块, redis有很多个模块在他的同级目录下modules
     moduleInitModulesSystem();
 
     /* Store the executable path and arguments in a safe place in order
@@ -4761,6 +4790,7 @@ int main(int argc, char **argv) {
     /* We need to init sentinel right now as parsing the configuration file
      * in sentinel mode will have the effect of populating the sentinel
      * data structures with master nodes to monitor. */
+    // 是否需要开启哨兵模式. 
     if (server.sentinel_mode) {
         initSentinelConfig();
         initSentinel();
@@ -4769,11 +4799,13 @@ int main(int argc, char **argv) {
     /* Check if we need to start in redis-check-rdb/aof mode. We just execute
      * the program main. However the program is part of the Redis executable
      * so that we can easily execute an RDB check on loading errors. */
+    // 是否需要检查rdb 或者aof
     if (strstr(argv[0],"redis-check-rdb") != NULL)
         redis_check_rdb_main(argc,argv,NULL);
     else if (strstr(argv[0],"redis-check-aof") != NULL)
         redis_check_aof_main(argc,argv);
 
+    // 如果有不止一个参数的情况下这么做. 不过为什么不写成两个函数呢?
     if (argc >= 2) {
         j = 1; /* First option to parse in argv[] */
         sds options = sdsempty();
@@ -4795,6 +4827,7 @@ int main(int argc, char **argv) {
             }
         }
 
+        // 获取redis.conf 实际路径. 这个方式很好. 可以作为其他工具的效仿点
         /* First argument is the config file name? */
         if (argv[j][0] != '-' || argv[j][1] != '-') {
             configfile = argv[j];
@@ -4810,6 +4843,7 @@ int main(int argc, char **argv) {
          * configuration file. For instance --port 6380 will generate the
          * string "port 6380\n" to be parsed after the actual file name
          * is parsed, if any. */
+        // 对文件内容进行解析. 参数什么的
         while(j != argc) {
             if (argv[j][0] == '-' && argv[j][1] == '-') {
                 /* Option name */
@@ -4855,10 +4889,12 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING, "Configuration loaded");
     }
 
+    // 如果redis不是监督模式且挂了守护模式了. 那么进行后台操作
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
 
+    // 初始化redis-server 重点 ******************************
     initServer();
     if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);

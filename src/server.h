@@ -1014,6 +1014,7 @@ struct redisServer {
                                    is enabled. */
     int hz;                     /* serverCron() calls frequency in hertz */
     redisDb *db;
+    // 可以被接收的命令组,命令之间的不同在实现上. 
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
@@ -1043,6 +1044,7 @@ struct redisServer {
     int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
+    // redis一次性可以对 16个IP地址进行监听. 这个IP地址可以是127.0.0.1可以是0.0.0.0, 为什么这么做呢？
     int ipfd[CONFIG_BINDADDR_MAX]; /* TCP socket file descriptors */
     int ipfd_count;             /* Used slots in ipfd[] */
     int sofd;                   /* Unix socket file descriptor */
@@ -1059,6 +1061,8 @@ struct redisServer {
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     uint64_t next_client_id;    /* Next client unique ID. Incremental. */
+    // 保护模式,默认状态是开启的. 开启后.redis网路是受限制的,官方解释是  不接受外部网络访问. 也就是不接受除命令外的网路访问.
+    // CONFIG_DEFAULT_PROTECTED_MODE 默认值
     int protected_mode;         /* Don't accept external connections. */
     int gopher_enabled;         /* If true the server will reply to gopher
                                    queries. Will still serve RESP2 queries. */
