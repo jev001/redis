@@ -246,8 +246,10 @@ static int anetSetReuseAddr(char *err, int fd) {
     return ANET_OK;
 }
 
+// 创建socket连接. 其中domain表示AF域, 可以使用本地通信或者是TCP通信 复用
 static int anetCreateSocket(char *err, int domain) {
     int s;
+    // 请求到socket连接 返回值就是一个fd文件描述
     if ((s = socket(domain, SOCK_STREAM, 0)) == -1) {
         anetSetError(err, "creating socket: %s", strerror(errno));
         return ANET_ERR;
@@ -255,6 +257,7 @@ static int anetCreateSocket(char *err, int domain) {
 
     /* Make sure connection-intensive things like the redis benchmark
      * will be able to close/open sockets a zillion of times */
+     // 
     if (anetSetReuseAddr(err,s) == ANET_ERR) {
         close(s);
         return ANET_ERR;
@@ -510,11 +513,12 @@ int anetTcp6Server(char *err, int port, char *bindaddr, int backlog)
     return _anetTcpServer(err, port, bindaddr, AF_INET6, backlog);
 }
 
+// 创建进程间通信的方法.这种
 int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
 {
     int s;
     struct sockaddr_un sa;
-
+    // 创建网络连接标记位AF_LOCAL AF_UNIX 这种是本地连接访问
     if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR)
         return ANET_ERR;
 

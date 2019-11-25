@@ -2732,6 +2732,7 @@ void initServer(void) {
 
     createSharedObjects();
     adjustOpenFilesLimit();
+    // 重点. 创建事件循环器, 后续所有发送的时间. 都会走这个
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
@@ -2836,6 +2837,7 @@ void initServer(void) {
             }
     }
     // 创建 unix驱动? 不太明白为什么要这么做  重点
+    // 用作同一台机下跨进程通信. IPC这么做可以减少传输到TCP网络模块的上下文切换.
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
 
@@ -4909,6 +4911,7 @@ int main(int argc, char **argv) {
     #endif
         moduleLoadFromQueue();
         ACLLoadUsersAtStartup();
+        // 启动的时候就讲数据从硬盘中导入
         loadDataFromDisk();
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {

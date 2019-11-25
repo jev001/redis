@@ -100,6 +100,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define AOF_READ_DIFF_INTERVAL_BYTES (1024*10)
 #define CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN 10000
 #define CONFIG_DEFAULT_SLOWLOG_MAX_LEN 128
+// 默认一次最多可以客户端链接数量
 #define CONFIG_DEFAULT_MAX_CLIENTS 10000
 #define CONFIG_AUTHPASS_MAX_LEN 512
 #define CONFIG_DEFAULT_SLAVE_PRIORITY 100
@@ -1047,6 +1048,10 @@ struct redisServer {
     // redis一次性可以对 16个IP地址进行监听. 这个IP地址可以是127.0.0.1可以是0.0.0.0, 为什么这么做呢？
     int ipfd[CONFIG_BINDADDR_MAX]; /* TCP socket file descriptors */
     int ipfd_count;             /* Used slots in ipfd[] */
+    // unix 文件描述符??? 这个是？？这fd是给本机调用访问的. 具体的可以参考
+    // https://lists.freebsd.org/pipermail/freebsd-performance/2005-February/001143.html
+    // unix下IPC方案. 使用unix socket 可以减少网络协议上的问题--> 可以参考系统的实现Windows下也有这种方式
+    // 具体的是为了解决进程间通信的问题. IPC 
     int sofd;                   /* Unix socket file descriptor */
     int cfd[CONFIG_BINDADDR_MAX];/* Cluster bus listening socket */
     int cfd_count;              /* Used slots in cfd[] */
@@ -1267,6 +1272,7 @@ struct redisServer {
     list *clients_waiting_acks;         /* Clients waiting in WAIT command. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
+    // 限制并发连接数？？？？？？
     unsigned int maxclients;            /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
