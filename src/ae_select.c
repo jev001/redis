@@ -39,6 +39,7 @@ typedef struct aeApiState {
     fd_set _rfds, _wfds;
 } aeApiState;
 
+// 创建WindowsIO事件处理
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
@@ -81,6 +82,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     memcpy(&state->_rfds,&state->rfds,sizeof(fd_set));
     memcpy(&state->_wfds,&state->wfds,sizeof(fd_set));
 
+// 事件驱动是循环每个事件发生器. 
     retval = select(eventLoop->maxfd+1,
                 &state->_rfds,&state->_wfds,NULL,tvp);
     if (retval > 0) {

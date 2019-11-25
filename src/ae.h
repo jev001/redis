@@ -62,6 +62,8 @@
 struct aeEventLoop;
 
 /* Types and data structures */
+// 事件处理器回调
+// typedef 后面接的是方法定义 那么代表只要出现了这种结构体的方法都算  C 中用于定义一个回调函数的, C中的接口概念 可以用这个实现多态
 typedef void aeFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask);
 typedef int aeTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData);
 typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData);
@@ -70,7 +72,9 @@ typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 /* File event structure */
 typedef struct aeFileEvent {
     int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) */
+    // 处理读事件
     aeFileProc *rfileProc;
+    // 处理写事件
     aeFileProc *wfileProc;
     void *clientData;
 } aeFileEvent;

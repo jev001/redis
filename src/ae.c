@@ -65,11 +65,13 @@
     #endif
 #endif
 
+// 创建事件循环器
 aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
 
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
+    // 创建事件数组. 申请的大小为setsize
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
@@ -127,6 +129,7 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
     return AE_OK;
 }
 
+// 关闭程序的时候. 需要关闭事件循环器
 void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     aeApiFree(eventLoop);
     zfree(eventLoop->events);
@@ -138,7 +141,9 @@ void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
 
-// 创建一个文件描述事件
+// 创建一个文件描述事件,时间通知后, 执行aeFileProc proc的处理程序
+// fd 是每个程序维护的文件描述符.
+// 
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
@@ -146,6 +151,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         errno = ERANGE;
         return AE_ERR;
     }
+    // 
     aeFileEvent *fe = &eventLoop->events[fd];
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
@@ -363,7 +369,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * The function returns the number of events processed. */
 
 
-// 处理事件驱动的地方
+// 处理事件驱动的地方 注册了所有的驱动
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
@@ -417,12 +423,14 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         /* Call the multiplexing API, will return only on timeout or when
          * some event fires. */
+        // 获取 一批(重点) 事件.如果没有事件怎么办timeout时间? 设置timeout 避免转空CPU
         numevents = aeApiPoll(eventLoop, tvp);
 
         /* After sleep callback. */
         if (eventLoop->aftersleep != NULL && flags & AE_CALL_AFTER_SLEEP)
             eventLoop->aftersleep(eventLoop);
 
+        // 循环接收到的事件
         for (j = 0; j < numevents; j++) {
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
@@ -502,6 +510,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
     }
 }
 
+// 循环时间器. 
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
     // 开始死循环了 这个时候所有的驱动都是在这里

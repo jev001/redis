@@ -108,7 +108,10 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;
-
+// 事件驱动是循环每个事件发生器. 
+// 注意需要 epoll这种都是靠循环的
+// epoll_wait(m_nEpId, arrEvents, default_epoll_size, 1);
+// 如果没有超时时间. 那么CPU会100%耗死
     retval = epoll_wait(state->epfd,state->events,eventLoop->setsize,
             tvp ? (tvp->tv_sec*1000 + tvp->tv_usec/1000) : -1);
     if (retval > 0) {
