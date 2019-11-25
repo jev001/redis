@@ -789,6 +789,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
      * connection. Note that we create the client instead to check before
      * for this condition, since now the socket is already set in non-blocking
      * mode and we can send an error for free using the Kernel I/O */
+     // redis连接池,一次性可以接收到多少个socket,如果超出了最大可接受的链接. 那么清空当前链接 断开 重点.
     if (listLength(server.clients) > server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
 
@@ -873,6 +874,7 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(privdata);
 
     while(max--) {
+        // 接收一个客户端请求
         cfd = anetUnixAccept(server.neterr, fd);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
@@ -881,6 +883,7 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         serverLog(LL_VERBOSE,"Accepted connection to %s", server.unixsocket);
+        // 处理客户端请求信息??? 为什么下面没了
         acceptCommonHandler(cfd,CLIENT_UNIX_SOCKET,NULL);
     }
 }
