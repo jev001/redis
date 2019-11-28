@@ -2874,7 +2874,7 @@ void initServer(void) {
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
 
-    // 
+    // 开启了集群模式. 集群模式初始化 一键操作
     if (server.cluster_enabled) clusterInit();
     replicationScriptCacheInit();
     scriptingInit(1);
@@ -3288,6 +3288,7 @@ void call(client *c, int flags) {
  * If C_OK is returned the client is still alive and valid and
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
+// 处理命令的函数
 int processCommand(client *c) {
     moduleCallCommandFilters(c);
 
@@ -3355,6 +3356,7 @@ int processCommand(client *c) {
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
      * 2) The command has no key arguments. */
+    // 集群模式下. 需要计算节点. 需要考量是不是master节点. 然后再做处理
     if (server.cluster_enabled &&
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
@@ -3362,16 +3364,21 @@ int processCommand(client *c) {
         !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0 &&
           c->cmd->proc != execCommand))
     {
+        // 开始计算hash槽
         int hashslot;
         int error_code;
+        // 查找槽
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
                                         &hashslot,&error_code);
+        // 如果节点不能够处理这个任务. 就进行下面判断
         if (n == NULL || n != server.cluster->myself) {
+            // 事务性命令
             if (c->cmd->proc == execCommand) {
                 discardTransaction(c);
             } else {
                 flagTransaction(c);
             }
+            // 因为不能够处理这个任务, 那么就需要重定向到其他节点
             clusterRedirectClient(c,n,hashslot,error_code);
             return C_OK;
         }

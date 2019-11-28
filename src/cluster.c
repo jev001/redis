@@ -87,12 +87,14 @@ void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8
  * when we lock the nodes.conf file, we create a zero-length one for the
  * sake of locking if it does not already exist), C_ERR is returned.
  * If the configuration was loaded from the file, C_OK is returned. */
+// 集群模式加载配置文件 重要 加载slot初始化工作在这里
 int clusterLoadConfig(char *filename) {
     FILE *fp = fopen(filename,"r");
     struct stat sb;
     char *line;
     int maxline, j;
 
+    // 配置文件是否可以打开
     if (fp == NULL) {
         if (errno == ENOENT) {
             return C_ERR;
@@ -106,6 +108,7 @@ int clusterLoadConfig(char *filename) {
 
     /* Check if the file is zero-length: if so return C_ERR to signal
      * we have to write the config. */
+    // 配置文件是否有效
     if (fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         fclose(fp);
         return C_ERR;
@@ -159,6 +162,7 @@ int clusterLoadConfig(char *filename) {
         if (argc < 8) goto fmterr;
 
         /* Create this node if it does not exist */
+        // 循环观测节点 是否存在
         n = clusterLookupNode(argv[0]);
         if (!n) {
             n = createClusterNode(argv[0],0);
@@ -234,7 +238,7 @@ int clusterLoadConfig(char *filename) {
         /* Populate hash slots served by this instance. */
         for (j = 8; j < argc; j++) {
             int start, stop;
-
+            // 分配slots 重点. 这个地方是对cluser的所有的分配
             if (argv[j][0] == '[') {
                 /* Here we handle migrating / importing slots */
                 int slot;
@@ -268,6 +272,7 @@ int clusterLoadConfig(char *filename) {
             }
             if (start < 0 || start >= CLUSTER_SLOTS) goto fmterr;
             if (stop < 0 || stop >= CLUSTER_SLOTS) goto fmterr;
+            // 循环添加slot的初始化
             while(start <= stop) clusterAddSlot(n, start++);
         }
 
@@ -389,6 +394,7 @@ int clusterLockConfig(char *filename) {
         return C_ERR;
     }
 
+    // 文件锁. C开发里面你的锁功能 对配置文件
     if (flock(fd,LOCK_EX|LOCK_NB) == -1) {
         if (errno == EWOULDBLOCK) {
             serverLog(LL_WARNING,
@@ -426,6 +432,7 @@ void clusterUpdateMyselfFlags(void) {
     }
 }
 
+// 集群模式初始化
 void clusterInit(void) {
     int saveconf = 0;
 
@@ -438,25 +445,33 @@ void clusterInit(void) {
     server.cluster->nodes = dictCreate(&clusterNodesDictType,NULL);
     server.cluster->nodes_black_list =
         dictCreate(&clusterNodesBlackListDictType,NULL);
+    // 故障转移
     server.cluster->failover_auth_time = 0;
     server.cluster->failover_auth_count = 0;
     server.cluster->failover_auth_rank = 0;
     server.cluster->failover_auth_epoch = 0;
+    // 故障转移原因                                                                      
     server.cluster->cant_failover_reason = CLUSTER_CANT_FAILOVER_NONE;
+    // 每一个集群确定一个最后的选举投票 此时分布式一致参考paxos
     server.cluster->lastVoteEpoch = 0;
     for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
         server.cluster->stats_bus_messages_sent[i] = 0;
         server.cluster->stats_bus_messages_received[i] = 0;
     }
+    // 确定故障转移的节点
     server.cluster->stats_pfail_nodes = 0;
+    // 分配所有的slots槽
     memset(server.cluster->slots,0, sizeof(server.cluster->slots));
+    // 为什么要关闭所有的slots
     clusterCloseAllSlots();
 
     /* Lock the cluster config file to make sure every node uses
      * its own nodes.conf. */
+    // 集群锁住配置?
     if (clusterLockConfig(server.cluster_configfile) == C_ERR)
         exit(1);
 
+    // 加载所有的配置信息. 重要. slots 的初始化在这里
     /* Load or create a new nodes configuration. */
     if (clusterLoadConfig(server.cluster_configfile) == C_ERR) {
         /* No configuration found. We will just use the random name provided
@@ -659,6 +674,8 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  * However if the key contains the {...} pattern, only the part between
  * { and } is hashed. This may be useful in the future to force certain
  * keys to be in the same node (assuming no resharding is in progress). */
+
+// 计算这个key落在那个slot上核实. 重点 
 unsigned int keyHashSlot(char *key, int keylen) {
     int s, e; /* start-end indexes of { and } */
 
@@ -1527,6 +1544,7 @@ void clusterSetNodeAsMaster(clusterNode *n) {
  * The 'sender' is the node for which we received a configuration update.
  * Sometimes it is not actually the "Sender" of the information, like in the
  * case we receive the info via an UPDATE packet. */
+// 集群更新slot节点信息. 出现在新增或者减少节点通过配置文件. 还可能是通过 故障转移出来的
 void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoch, unsigned char *slots) {
     int j;
     clusterNode *curmaster, *newmaster = NULL;
@@ -5449,6 +5467,7 @@ void readwriteCommand(client *c) {
  *
  * CLUSTER_REDIR_DOWN_STATE if the cluster is down but the user attempts to
  * execute a command that addresses one or more keys. */
+// 计算当前cluser节点 是否在hash环上. 能够处理这个数据
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
     clusterNode *n = NULL;
     robj *firstkey = NULL;
@@ -5501,14 +5520,17 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         keyindex = getKeysFromCommand(mcmd,margv,margc,&numkeys);
         for (j = 0; j < numkeys; j++) {
             robj *thiskey = margv[keyindex[j]];
+            // 获取key的slot
             int thisslot = keyHashSlot((char*)thiskey->ptr,
                                        sdslen(thiskey->ptr));
 
+            // 为什么要判断第一个key是否为null? 
             if (firstkey == NULL) {
                 /* This is the first key we see. Check what is the slot
                  * and node. */
                 firstkey = thiskey;
                 slot = thisslot;
+                
                 n = server.cluster->slots[slot];
 
                 /* Error: If a slot is not served, we are in "cluster down"

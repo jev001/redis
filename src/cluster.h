@@ -5,6 +5,7 @@
  * Redis cluster data structures, defines, exported API.
  *----------------------------------------------------------------------------*/
 
+// cluster槽数量. 为啥是16384 这个数字呢?
 #define CLUSTER_SLOTS 16384
 #define CLUSTER_OK 0          /* Everything looks ok */
 #define CLUSTER_FAIL 1        /* The cluster can't work */
@@ -118,6 +119,7 @@ typedef struct clusterNode {
     char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
     int flags;      /* CLUSTER_NODE_... */
     uint64_t configEpoch; /* Last configEpoch observed for this node */
+    // 为什么slots数量要 除8 是均分8个节点吗?
     unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
     int numslots;   /* Number of slots handled by this node */
     int numslaves;  /* Number of slave nodes, if this is a master */
@@ -137,6 +139,7 @@ typedef struct clusterNode {
     int port;                   /* Latest known clients port of this node */
     int cport;                  /* Latest known cluster port of this node. */
     clusterLink *link;          /* TCP/IP link with this node */
+    //故障报告, 其他节点通知过来的如果故障报告通过一致投票了,那么集群将抛弃这个节点
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
 
