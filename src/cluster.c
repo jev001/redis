@@ -694,6 +694,7 @@ unsigned int keyHashSlot(char *key, int keylen) {
 
     /* If we are here there is both a { and a } on its right. Hash
      * what is in the middle between { and }. */
+    // 这个地方也是进行了16383 cluser_slot_size 的大小判断
     return crc16(key+s+1,e-s-1) & 0x3FFF;
 }
 
