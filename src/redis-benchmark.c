@@ -94,6 +94,7 @@ static struct config {
     sds dbnumstr;
     char *tests;
     char *auth;
+    const char *user;
     int precision;
     int num_threads;
     struct benchmarkThread **threads;
@@ -104,6 +105,7 @@ static struct config {
     int is_fetching_slots;
     int is_updating_slots;
     int slots_last_update;
+    int enable_tracking;
     /* Thread mutexes to be used as fallbacks by atomicvar.h */
     pthread_mutex_t requests_issued_mutex;
     pthread_mutex_t requests_finished_mutex;
@@ -254,6 +256,22 @@ static redisConfig *getRedisConfig(const char *ip, int port,
         else fprintf(stderr,"%s: %s\n",hostsocket,err);
         goto fail;
     }
+
+    if(config.auth) {
+        void *authReply = NULL;
+        if (config.user == NULL)
+            redisAppendCommand(c, "AUTH %s", config.auth);
+        else
+            redisAppendCommand(c, "AUTH %s %s", config.user, config.auth);
+        if (REDIS_OK != redisGetReply(c, &authReply)) goto fail;
+        if (reply) freeReplyObject(reply);
+        reply = ((redisReply *) authReply);
+        if (reply->type == REDIS_REPLY_ERROR) {
+            fprintf(stderr, "ERROR: %s\n", reply->str);
+            goto fail;
+        }
+    }
+
     redisAppendCommand(c, "CONFIG GET %s", "save");
     redisAppendCommand(c, "CONFIG GET %s", "appendonly");
     int i = 0;
@@ -261,7 +279,7 @@ static redisConfig *getRedisConfig(const char *ip, int port,
     for (; i < 2; i++) {
         int res = redisGetReply(c, &r);
         if (reply) freeReplyObject(reply);
-        reply = ((redisReply *) r);
+        reply = res == REDIS_OK ? ((redisReply *) r) : NULL;
         if (res != REDIS_OK || !r) goto fail;
         if (reply->type == REDIS_REPLY_ERROR) {
             fprintf(stderr, "ERROR: %s\n", reply->str);
@@ -614,7 +632,20 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
     c->prefix_pending = 0;
     if (config.auth) {
         char *buf = NULL;
-        int len = redisFormatCommand(&buf, "AUTH %s", config.auth);
+        int len;
+        if (config.user == NULL)
+            len = redisFormatCommand(&buf, "AUTH %s", config.auth);
+        else
+            len = redisFormatCommand(&buf, "AUTH %s %s",
+                                     config.user, config.auth);
+        c->obuf = sdscatlen(c->obuf, buf, len);
+        free(buf);
+        c->prefix_pending++;
+    }
+
+    if (config.enable_tracking) {
+        char *buf = NULL;
+        int len = redisFormatCommand(&buf, "CLIENT TRACKING on");
         c->obuf = sdscatlen(c->obuf, buf, len);
         free(buf);
         c->prefix_pending++;
@@ -1277,6 +1308,9 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"-a") ) {
             if (lastarg) goto invalid;
             config.auth = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--user")) {
+            if (lastarg) goto invalid;
+            config.user = argv[++i];
         } else if (!strcmp(argv[i],"-d")) {
             if (lastarg) goto invalid;
             config.datasize = atoi(argv[++i]);
@@ -1294,7 +1328,7 @@ int parseOptions(int argc, const char **argv) {
                 if (*p < '0' || *p > '9') goto invalid;
             }
             config.randomkeys = 1;
-            config.randomkeys_keyspacelen = atoi(argv[++i]);
+            config.randomkeys_keyspacelen = atoi(next);
             if (config.randomkeys_keyspacelen < 0)
                 config.randomkeys_keyspacelen = 0;
         } else if (!strcmp(argv[i],"-q")) {
@@ -1337,6 +1371,8 @@ int parseOptions(int argc, const char **argv) {
              } else if (config.num_threads < 0) config.num_threads = 0;
         } else if (!strcmp(argv[i],"--cluster")) {
             config.cluster_mode = 1;
+        } else if (!strcmp(argv[i],"--enable-tracking")) {
+            config.enable_tracking = 1;
         } else if (!strcmp(argv[i],"--help")) {
             exit_status = 0;
             goto usage;
@@ -1361,12 +1397,14 @@ usage:
 " -p <port>          Server port (default 6379)\n"
 " -s <socket>        Server socket (overrides host and port)\n"
 " -a <password>      Password for Redis Auth\n"
+" --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
 " -c <clients>       Number of parallel connections (default 50)\n"
 " -n <requests>      Total number of requests (default 100000)\n"
 " -d <size>          Data size of SET/GET value in bytes (default 3)\n"
 " --dbnum <db>       SELECT the specified db number (default 0)\n"
 " --threads <num>    Enable multi-thread mode.\n"
 " --cluster          Enable cluster mode.\n"
+" --enable-tracking  Send CLIENT TRACKING on before starting benchmark.\n"
 " -k <boolean>       1=keep alive 0=reconnect (default 1)\n"
 " -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD\n"
 "  Using this option the benchmark will expand the string __rand_int__\n"
@@ -1491,6 +1529,7 @@ int main(int argc, const char **argv) {
     config.is_fetching_slots = 0;
     config.is_updating_slots = 0;
     config.slots_last_update = 0;
+    config.enable_tracking = 0;
 
     i = parseOptions(argc,argv);
     argc -= i;
@@ -1527,7 +1566,10 @@ int main(int argc, const char **argv) {
             if (node->name) printf("%s ", node->name);
             printf("%s:%d\n", node->ip, node->port);
             node->redis_config = getRedisConfig(node->ip, node->port, NULL);
-            if (node->redis_config == NULL) exit(1);
+            if (node->redis_config == NULL) {
+                fprintf(stderr, "WARN: could not fetch node CONFIG %s:%d\n",
+                        node->ip, node->port);
+            }
         }
         printf("\n");
         /* Automatically set thread number to node count if not specified
@@ -1537,7 +1579,8 @@ int main(int argc, const char **argv) {
     } else {
         config.redis_config =
             getRedisConfig(config.hostip, config.hostport, config.hostsocket);
-        if (config.redis_config == NULL) exit(1);
+        if (config.redis_config == NULL)
+            fprintf(stderr, "WARN: could not fetch server CONFIG\n");
     }
 
     if (config.num_threads > 0) {

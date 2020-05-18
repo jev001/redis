@@ -217,7 +217,7 @@ void pushGenericCommand(client *c, int where) {
     if (pushed) {
         char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
 
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     }
     server.dirty += pushed;
@@ -247,7 +247,7 @@ void pushxGenericCommand(client *c, int where) {
 
     if (pushed) {
         char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     }
     server.dirty += pushed;
@@ -292,7 +292,7 @@ void linsertCommand(client *c) {
     listTypeReleaseIterator(iter);
 
     if (inserted) {
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,"linsert",
                             c->argv[1],c->db->id);
         server.dirty++;
@@ -355,7 +355,7 @@ void lsetCommand(client *c) {
             addReply(c,shared.outofrangeerr);
         } else {
             addReply(c,shared.ok);
-            signalModifiedKey(c->db,c->argv[1]);
+            signalModifiedKey(c,c->db,c->argv[1]);
             notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
             server.dirty++;
         }
@@ -382,7 +382,7 @@ void popGenericCommand(client *c, int where) {
                                 c->argv[1],c->db->id);
             dbDelete(c->db,c->argv[1]);
         }
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         server.dirty++;
     }
 }
@@ -402,7 +402,7 @@ void lrangeCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray)) == NULL
          || checkType(c,o,OBJ_LIST)) return;
     llen = listTypeLength(o);
 
@@ -414,7 +414,7 @@ void lrangeCommand(client *c) {
     /* Invariant: start >= 0, so this test will be true when end < 0.
      * The range is empty when start > end or start >= length. */
     if (start > end || start >= llen) {
-        addReplyNull(c);
+        addReply(c,shared.emptyarray);
         return;
     }
     if (end >= llen) end = llen-1;
@@ -482,7 +482,7 @@ void ltrimCommand(client *c) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
-    signalModifiedKey(c->db,c->argv[1]);
+    signalModifiedKey(c,c->db,c->argv[1]);
     server.dirty++;
     addReply(c,shared.ok);
 }
@@ -519,7 +519,7 @@ void lremCommand(client *c) {
     listTypeReleaseIterator(li);
 
     if (removed) {
-        signalModifiedKey(c->db,c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,"lrem",c->argv[1],c->db->id);
     }
 
@@ -555,7 +555,7 @@ void rpoplpushHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value) {
                             server.list_compress_depth);
         dbAdd(c->db,dstkey,dstobj);
     }
-    signalModifiedKey(c->db,dstkey);
+    signalModifiedKey(c,c->db,dstkey);
     listTypePush(dstobj,value,LIST_HEAD);
     notifyKeyspaceEvent(NOTIFY_LIST,"lpush",dstkey,c->db->id);
     /* Always send the pushed value to the client. */
@@ -593,7 +593,7 @@ void rpoplpushCommand(client *c) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
                                 touchedkey,c->db->id);
         }
-        signalModifiedKey(c->db,touchedkey);
+        signalModifiedKey(c,c->db,touchedkey);
         decrRefCount(touchedkey);
         server.dirty++;
         if (c->cmd->proc == brpoplpushCommand) {
@@ -606,7 +606,7 @@ void rpoplpushCommand(client *c) {
  * Blocking POP operations
  *----------------------------------------------------------------------------*/
 
-/* This is a helper function for handleClientsBlockedOnLists(). It's work
+/* This is a helper function for handleClientsBlockedOnKeys(). It's work
  * is to serve a specific client (receiver) that is blocked on 'key'
  * in the context of the specified 'db', doing the following:
  *
@@ -617,7 +617,7 @@ void rpoplpushCommand(client *c) {
  *    the AOF and replication channel.
  *
  * The argument 'where' is LIST_TAIL or LIST_HEAD, and indicates if the
- * 'value' element was popped fron the head (BLPOP) or tail (BRPOP) so that
+ * 'value' element was popped from the head (BLPOP) or tail (BRPOP) so that
  * we can propagate the command properly.
  *
  * The function returns C_OK if we are able to serve the client, otherwise
@@ -653,20 +653,13 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
         if (!(dstobj &&
              checkType(receiver,dstobj,OBJ_LIST)))
         {
-            /* Propagate the RPOP operation. */
-            argv[0] = shared.rpop;
-            argv[1] = key;
-            propagate(server.rpopCommand,
-                db->id,argv,2,
-                PROPAGATE_AOF|
-                PROPAGATE_REPL);
             rpoplpushHandlePush(receiver,dstkey,dstobj,
                 value);
-            /* Propagate the LPUSH operation. */
-            argv[0] = shared.lpush;
-            argv[1] = dstkey;
-            argv[2] = value;
-            propagate(server.lpushCommand,
+            /* Propagate the RPOPLPUSH operation. */
+            argv[0] = shared.rpoplpush;
+            argv[1] = key;
+            argv[2] = dstkey;
+            propagate(server.rpoplpushCommand,
                 db->id,argv,3,
                 PROPAGATE_AOF|
                 PROPAGATE_REPL);
@@ -715,7 +708,7 @@ void blockingPopGenericCommand(client *c, int where) {
                         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
                                             c->argv[j],c->db->id);
                     }
-                    signalModifiedKey(c->db,c->argv[j]);
+                    signalModifiedKey(c,c->db,c->argv[j]);
                     server.dirty++;
 
                     /* Replicate it as an [LR]POP instead of B[LR]POP. */
