@@ -75,7 +75,9 @@ int listMatchObjects(void *a, void *b) {
 
 /* This function links the client to the global linked list of clients.
  * unlinkClient() does the opposite, among other things. */
+// 连接客户端
 void linkClient(client *c) {
+    // 将客户端放入server.clients队列, 等待处理
     listAddNodeTail(server.clients,c);
     /* Note that we remember the linked list node where the client is stored,
      * this way removing the client in unlinkClient() will not require
@@ -85,6 +87,7 @@ void linkClient(client *c) {
     raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
 }
 
+// 创建链接客户端
 client *createClient(connection *conn) {
     client *c = zmalloc(sizeof(client));
 
@@ -97,6 +100,7 @@ client *createClient(connection *conn) {
         connEnableTcpNoDelay(conn);
         if (server.tcpkeepalive)
             connKeepAlive(conn,server.tcpkeepalive);
+            // 创建链接客户端的时候 客户端标记进入读取状态的队列中
         connSetReadHandler(conn, readQueryFromClient);
         connSetPrivateData(conn, c);
     }
@@ -912,6 +916,7 @@ void clientAcceptHandler(connection *conn) {
                           c);
 }
 
+// 处理一些通用请求的处理 包含TCP UNIX 等
 #define MAX_ACCEPTS_PER_CALL 1000
 static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     client *c;
@@ -921,6 +926,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
      * called, because we don't want to even start transport-level negotiation
      * if rejected.
      */
+     // 如果redis服务器连接数达到上限, 断开此次连接
     if (listLength(server.clients) >= server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
 
@@ -936,6 +942,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
         return;
     }
 
+    // 创建新的连接客户端
     /* Create connection and client */
     if ((c = createClient(conn)) == NULL) {
         char conninfo[100];
@@ -969,6 +976,7 @@ static void acceptCommonHandler(connection *conn, int flags, char *ip) {
     }
 }
 
+// 连接TCP的时候的处理请求
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
     char cip[NET_IP_STR_LEN];
@@ -977,6 +985,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(privdata);
 
     while(max--) {
+        // 获取TCP客户端连接
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
@@ -985,6 +994,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
+        // 对请求的通用处理
         acceptCommonHandler(connCreateAcceptedSocket(cfd),0,cip);
     }
 }
@@ -1890,6 +1900,7 @@ void processInputBuffer(client *c) {
     }
 }
 
+// 每一个连接的客户端去读取数据 读取查询命令解析他
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     int nread, readlen;
@@ -1897,6 +1908,8 @@ void readQueryFromClient(connection *conn) {
 
     /* Check if we want to read from the client later when exiting from
      * the event loop. This is the case if threaded I/O is enabled. */
+     // 
+    // 将连接客户端标记为读状态 并且放入 clients_pending_read 队列中
     if (postponeClientRead(c)) return;
 
     readlen = PROTO_IOBUF_LEN;
@@ -2903,22 +2916,27 @@ int io_threads_op;      /* IO_THREADS_OP_WRITE or IO_THREADS_OP_READ. */
  * itself. */
 list *io_threads_list[IO_THREADS_MAX_NUM];
 
+// 每一个线程做的事情
 void *IOThreadMain(void *myid) {
     /* The ID is the thread number (from 0 to server.iothreads_num-1), and is
      * used by the thread to just manipulate a single sub-array of clients. */
     long id = (unsigned long)myid;
     char thdname[16];
-
+    
     snprintf(thdname, sizeof(thdname), "io_thd_%ld", id);
+    // 设置每个IO线程的名称
     redis_set_thread_title(thdname);
+    // 设置当前CPU的使用
     redisSetCpuAffinity(server.server_cpulist);
 
     while(1) {
+        // 线程延迟启动处理时间
         /* Wait for start */
         for (int j = 0; j < 1000000; j++) {
             if (io_threads_pending[id] != 0) break;
         }
 
+        // 如果当前线程编号是0 那么属于主线程, 主线程可以对其他线程进行锁????
         /* Give the main thread a chance to stop this thread. */
         if (io_threads_pending[id] == 0) {
             pthread_mutex_lock(&io_threads_mutex[id]);
@@ -2952,6 +2970,7 @@ void *IOThreadMain(void *myid) {
     }
 }
 
+// 如果需要开启多线程处理网络数据那么就这么做
 /* Initialize the data structures needed for threaded I/O. */
 void initThreadedIO(void) {
     io_threads_active = 0; /* We start with threads not active. */
@@ -2977,6 +2996,7 @@ void initThreadedIO(void) {
         pthread_mutex_init(&io_threads_mutex[i],NULL);
         io_threads_pending[i] = 0;
         pthread_mutex_lock(&io_threads_mutex[i]); /* Thread will be stopped. */
+        // 开启线程
         if (pthread_create(&tid,NULL,IOThreadMain,(void*)(long)i) != 0) {
             serverLog(LL_WARNING,"Fatal: Can't initialize IO thread.");
             exit(1);
@@ -3031,6 +3051,7 @@ int stopThreadedIOIfNeeded(void) {
     }
 }
 
+// 
 int handleClientsWithPendingWritesUsingThreads(void) {
     int processed = listLength(server.clients_pending_write);
     if (processed == 0) return 0; /* Return ASAP if there are no clients. */
@@ -3126,6 +3147,11 @@ int postponeClientRead(client *c) {
  * the queue using the I/O threads, and process them in order to accumulate
  * the reads in the buffers, and also parse the first command available
  * rendering it in the client structures. */
+ // 使用多线程去读处理 使用多线程去读取实现, 增加同时处理命令的吞吐
+ // redis 的主线程主力每一个连接请求, 然后将连接请求全部放入读队列中
+ // 然后读队列将在每一个线程里面处理相对应的读处理请求
+ // 主线程等待所有的读取命令的操作
+ //   如果4条命令有1条主阻塞的 那死定了
 int handleClientsWithPendingReadsUsingThreads(void) {
     if (!io_threads_active || !server.io_threads_do_reads) return 0;
     int processed = listLength(server.clients_pending_read);
@@ -3133,11 +3159,13 @@ int handleClientsWithPendingReadsUsingThreads(void) {
 
     if (tio_debug) printf("%d TOTAL READ pending clients\n", processed);
 
+    // 分配客户端连接给线程
     /* Distribute the clients across N different lists. */
     listIter li;
     listNode *ln;
     listRewind(server.clients_pending_read,&li);
     int item_id = 0;
+    // 准备读取阶段
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         int target_id = item_id % server.io_threads_num;
@@ -3147,6 +3175,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
 
     /* Give the start condition to the waiting threads, by setting the
      * start condition atomic var. */
+     // 将所有线程状态设置为 读取状态
     io_threads_op = IO_THREADS_OP_READ;
     for (int j = 1; j < server.io_threads_num; j++) {
         int count = listLength(io_threads_list[j]);
@@ -3155,12 +3184,14 @@ int handleClientsWithPendingReadsUsingThreads(void) {
 
     /* Also use the main thread to process a slice of clients. */
     listRewind(io_threads_list[0],&li);
+    // 每一个线程去读取数据 主线程停留在这里
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         readQueryFromClient(c->conn);
     }
     listEmpty(io_threads_list[0]);
 
+    // 等所有的线程完成了读取命令的工作后结束
     /* Wait for all the other threads to end their work. */
     while(1) {
         unsigned long pending = 0;
@@ -3170,6 +3201,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     }
     if (tio_debug) printf("I/O READ All threads finshed\n");
 
+    // 将刚刚读取到的命令按照队列 一个一个处理 由主线程完成
     /* Run the list of clients again to process the new buffers. */
     while(listLength(server.clients_pending_read)) {
         ln = listFirst(server.clients_pending_read);

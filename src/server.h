@@ -1089,9 +1089,13 @@ struct redisServer {
     int sofd;                   /* Unix socket file descriptor */
     int cfd[CONFIG_BINDADDR_MAX];/* Cluster bus listening socket */
     int cfd_count;              /* Used slots in cfd[] */
+    // 客户端队列, 这个队列在network中 acceptTCPHandler 或者acceptXXXHandler中加入 执行acceptCommon 的时候调用了linkClient的加入的
     list *clients;              /* List of active clients */
+
     list *clients_to_close;     /* Clients to close asynchronously */
+    // 即将要处理写操作的客户端队列
     list *clients_pending_write; /* There is to write or install handler. */
+    // 即将要处理读操作的客户端队列
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* Current client executing the command. */
@@ -1109,7 +1113,9 @@ struct redisServer {
     int protected_mode;         /* Don't accept external connections. */
     int gopher_enabled;         /* If true the server will reply to gopher
                                    queries. Will still serve RESP2 queries. */
+    // 开启的IO线程的数量                                   
     int io_threads_num;         /* Number of IO threads to use. */
+    // 从IO线程中读取并且格式化数据
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
 

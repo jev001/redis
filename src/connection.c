@@ -88,6 +88,7 @@ connection *connCreateSocket() {
  * The socket is not read for I/O until connAccept() was called and
  * invoked the connection-level accept handler.
  */
+ // 将连接标识为连接状态 
 connection *connCreateAcceptedSocket(int fd) {
     connection *conn = connCreateSocket();
     conn->fd = fd;

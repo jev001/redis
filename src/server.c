@@ -2125,6 +2125,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     handleBlockedClientsTimeout();
 
     /* We should handle pending reads clients ASAP after event loop. */
+    // 使用多线程去读取数据
     handleClientsWithPendingReadsUsingThreads();
 
     /* Handle TLS pending data. (must be done before flushAppendOnlyFile) */
@@ -2971,7 +2972,9 @@ void initServer(void) {
  * see: https://sourceware.org/bugzilla/show_bug.cgi?id=19329 */
  // BIO 线程操作初始化 新增了线程变量初始化的问题. 所以将bio放到了服务初始化最后执行
 void InitServerLast() {
+    // 开启BIO功能初始化, 并且BIO多线程处理
     bioInit();
+    // 开启多线程IO的初始化
     initThreadedIO();
     set_jemalloc_bg_thread(server.jemalloc_bg_thread);
     server.initial_memory_usage = zmalloc_used_memory();
