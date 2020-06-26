@@ -101,6 +101,7 @@ client *createClient(connection *conn) {
         if (server.tcpkeepalive)
             connKeepAlive(conn,server.tcpkeepalive);
             // 创建链接客户端的时候 客户端标记进入读取状态的队列中
+            // 第一次处理readQueryFromClient 
         connSetReadHandler(conn, readQueryFromClient);
         connSetPrivateData(conn, c);
     }
@@ -2930,7 +2931,7 @@ void *IOThreadMain(void *myid) {
     redisSetCpuAffinity(server.server_cpulist);
 
     while(1) {
-        // 线程延迟启动处理时间
+        // 每个线程都会暂停一段时间, 除了主线程
         /* Wait for start */
         for (int j = 0; j < 1000000; j++) {
             if (io_threads_pending[id] != 0) break;
@@ -2964,6 +2965,7 @@ void *IOThreadMain(void *myid) {
             }
         }
         listEmpty(io_threads_list[id]);
+        // 每一个线程处理完成以后将数据标记为 0
         io_threads_pending[id] = 0;
 
         if (tio_debug) printf("[%ld] Done\n", id);
@@ -3096,8 +3098,12 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     }
     listEmpty(io_threads_list[0]);
 
+    // 阻塞主线程
     /* Wait for all the other threads to end their work. */
     while(1) {
+        // 对所有线程待处理的状态进行计数操作, 
+        // 如果所有的线程都完成了任务 那么进行下一个步骤
+        // io_threads_pending 的修改会在每一个线程处理完成了当前数据的时候进行赋值0的操作
         unsigned long pending = 0;
         for (int j = 1; j < server.io_threads_num; j++)
             pending += io_threads_pending[j];
@@ -3152,6 +3158,7 @@ int postponeClientRead(client *c) {
  // 然后读队列将在每一个线程里面处理相对应的读处理请求
  // 主线程等待所有的读取命令的操作
  //   如果4条命令有1条主阻塞的 那死定了
+ // 来源从aeMain 的beforeSleep中获取
 int handleClientsWithPendingReadsUsingThreads(void) {
     if (!io_threads_active || !server.io_threads_do_reads) return 0;
     int processed = listLength(server.clients_pending_read);
@@ -3187,7 +3194,8 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     // 每一个线程去读取数据 主线程停留在这里
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
-        readQueryFromClient(c->conn);
+        // 第二次处理
+        (c->conn);
     }
     listEmpty(io_threads_list[0]);
 
@@ -3196,6 +3204,9 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     while(1) {
         unsigned long pending = 0;
         for (int j = 1; j < server.io_threads_num; j++)
+        // 对所有线程待处理的状态进行计数操作, 
+        // 如果所有的线程都完成了任务 那么进行下一个步骤
+        // io_threads_pending 的修改会在每一个线程处理完成了当前数据的时候进行赋值0的操作
             pending += io_threads_pending[j];
         if (pending == 0) break;
     }
