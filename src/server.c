@@ -4576,6 +4576,7 @@ int checkForSentinelMode(int argc, char **argv) {
 }
 
 /* Function called at startup to load RDB or AOF file in memory. */
+// 恢复缓存在磁盘上的redis数据 此处是
 void loadDataFromDisk(void) {
     long long start = ustime();
     if (server.aof_state == AOF_ON) {
@@ -4918,8 +4919,9 @@ int main(int argc, char **argv) {
     #endif
         moduleLoadFromQueue();
         ACLLoadUsersAtStartup();
-        // 启动的时候就讲数据从硬盘中导入
+        // 启动的时候就讲数据从硬盘中导入 rdb或者 aof的数据
         loadDataFromDisk();
+        // 如果存在集群模式,还需要校验集群数据
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
                 serverLog(LL_WARNING,

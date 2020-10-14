@@ -510,7 +510,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
     }
 }
 
-// 循环时间器. 
+// 循环事件器. 
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
     // 开始死循环了 这个时候所有的驱动都是在这里
