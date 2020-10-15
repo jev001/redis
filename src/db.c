@@ -38,6 +38,7 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
+// redis 指令操作-->对于redis 数据存储上的操作
 int keyIsExpired(redisDb *db, robj *key);
 
 /* Update LFU when an object is accessed.
@@ -53,6 +54,7 @@ void updateLFU(robj *val) {
  * implementations that should instead rely on lookupKeyRead(),
  * lookupKeyWrite() and lookupKeyReadWithFlags(). */
 robj *lookupKey(redisDb *db, robj *key, int flags) {
+    // 查找出当前的key 对应的val 
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
         robj *val = dictGetVal(de);
@@ -60,11 +62,14 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
+        // 更新当前的值为时间
+        // flag作用需要参考使用,其中 LOOKUP_NOTOUCH 代表着 不更新访问时间,那么也就是
         if (server.rdb_child_pid == -1 &&
             server.aof_child_pid == -1 &&
             !(flags & LOOKUP_NOTOUCH))
         {
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+                // 更新LFU数据
                 updateLFU(val);
             } else {
                 val->lru = LRU_CLOCK();
@@ -98,19 +103,24 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  * for read operations. Even if the key expiry is master-driven, we can
  * correctly report a key is expired on slaves even if the master is lagging
  * expiring our key via DELs in the replication link. */
+// 查询当前key 的状态
+//   flag 表示
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     robj *val;
 
+    // 存在key数据 校验是否存在
     if (expireIfNeeded(db,key) == 1) {
         /* Key expired. If we are in the context of a master, expireIfNeeded()
          * returns 0 only when the key does not exist at all, so it's safe
          * to return NULL ASAP. */
+        //  当前masterhost 为空 主节点????,将数据迁移到master节点操作
         if (server.masterhost == NULL) {
             server.stat_keyspace_misses++;
             notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
             return NULL;
         }
 
+        // 如果当前节点是从节点 那么将数据
         /* However if we are in the context of a slave, expireIfNeeded() will
          * not really try to expire the key, it only returns information
          * about the "logical" status of the key: key expiring is up to the
@@ -133,6 +143,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
             return NULL;
         }
     }
+    // 查看当前的
     val = lookupKey(db,key,flags);
     if (val == NULL) {
         server.stat_keyspace_misses++;
