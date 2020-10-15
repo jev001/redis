@@ -4340,6 +4340,7 @@ void sentinelSimFailureCrash(void)
 //   比较大小是为了确定当前的逻辑时钟中,当前的投票场次/投票是最新的,如果不是最新的那么放弃
 //  得到了新的票根后,将当前持有的leader 替换成最新的
 // 返回数据为当前持有的 leader
+// 更正使用的是 raft方式
 char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char *req_runid, uint64_t *leader_epoch)
 {
     // 如果当前的投票大于现有的持有的票,那么将当前的票刷新为最新的
