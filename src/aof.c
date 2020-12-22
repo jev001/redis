@@ -674,10 +674,15 @@ void freeFakeClient(struct client *c) {
 /* Replay the append log file. On success C_OK is returned. On non fatal
  * error (the append only file is zero-length) C_ERR is returned. On
  * fatal error an error message is logged and the program exists. */
+
+// 从aof 文件中恢复数据
 int loadAppendOnlyFile(char *filename) {
+	// 创建一个假的客户端. 因为我们启动的是redis-server . 但是恢复的时候需要模拟客户端的程序一个一个指令执行
     struct client *fakeClient;
+	// 打开aof文件
     FILE *fp = fopen(filename,"r");
     struct redis_stat sb;
+	// 获取当前服务器对于aof 文件的状态.等之后需要使用的时候 用于还原
     int old_aof_state = server.aof_state;
     long loops = 0;
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
@@ -692,6 +697,7 @@ int loadAppendOnlyFile(char *filename) {
      * is a valid AOF because an empty server with AOF enabled will create
      * a zero length file at startup, that will remain like that if no write
      * operation is received. */
+	// 加载一个空白的aof 文件的时候 直接返回操作. 。。。空白文件的AOF 是合法的. 只不过没有命令而已
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         server.aof_current_size = 0;
         fclose(fp);
@@ -700,9 +706,12 @@ int loadAppendOnlyFile(char *filename) {
 
     /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI
      * to the same file we're about to read. */
+	// 暂时关闭该服务的aof状态. 避免恢复的时候. 还继续读写他
     server.aof_state = AOF_OFF;
 
+	// 创建假客户端去执行命令
     fakeClient = createFakeClient();
+	// 开始加载??? 这个地方的加载是 用于标记现在服务器的 rdb加载状态. 也是用于恢复的时候使用的
     startLoading(fp);
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
@@ -725,7 +734,7 @@ int loadAppendOnlyFile(char *filename) {
             serverLog(LL_NOTICE,"Reading the remaining AOF tail...");
         }
     }
-
+	// 轮训读取redis 的命令
     /* Read the actual AOF file, in REPL format, command by command. */
     while(1) {
         int argc, j;
