@@ -717,6 +717,11 @@ int loadAppendOnlyFile(char *filename) {
     /* Check if this AOF file has an RDB preamble. In that case we need to
      * load the RDB file and later continue loading the AOF tail. */
     char sig[5]; /* "REDIS" */
+	// 检查文件的头部是否有REDIS这个标记. 存在这个标记. 那么也代表这个是符合 RDB FORMAT 格式的数据. 
+	// 这个是一个含有RDB数据的文件
+	//     如果没有. 那么需要将fp的指针重置指回0位置
+	//     如果存在.那么就进入RDB数据回滚阶段
+	
     if (fread(sig,1,5,fp) != 5 || memcmp(sig,"REDIS",5) != 0) {
         /* No RDB preamble, seek back at 0 offset. */
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
@@ -726,7 +731,10 @@ int loadAppendOnlyFile(char *filename) {
 
         serverLog(LL_NOTICE,"Reading RDB preamble from AOF file...");
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
+		// 将文件初始化成为redisIO 形式.用于数据恢复
         rioInitWithFile(&rdb,fp);
+		// 加载rdb数据从刚刚初始化的rio中. 这么做.就可以恢复aof文件中的rdb数据了
+		// 加载完成rdb后. 此时的fp 是跳过了rdb格式的数据的
         if (rdbLoadRio(&rdb,NULL,1) != C_OK) {
             serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file, AOF loading aborted");
             goto readerr;
